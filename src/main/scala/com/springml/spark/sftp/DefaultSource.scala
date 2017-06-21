@@ -99,8 +99,11 @@ class DefaultSource extends RelationProvider with SchemaRelationProvider with Cr
     val path = parameters.getOrElse("path", sys.error("'path' must be specified"))
     val fileType = parameters.getOrElse("fileType", sys.error("File type has to be provided using 'fileType' option"))
     val header = parameters.getOrElse("header", "true")
+    val sepChar = parameters.getOrElse("sep", ",")
+    val compression = parameters.getOrElse("compression", "none")
     val copyLatest = parameters.getOrElse("copyLatest", "false")
     val tmpFolder = parameters.getOrElse("tempLocation", System.getProperty("java.io.tmpdir"))
+    val useDbfs = parameters.getOrElse("useDbfs", "false")
     val cryptoKey = parameters.getOrElse("cryptoKey", null)
     val cryptoAlgorithm = parameters.getOrElse("cryptoAlgorithm", "AES")
 
@@ -110,7 +113,7 @@ class DefaultSource extends RelationProvider with SchemaRelationProvider with Cr
     }
 
     val sftpClient = getSFTPClient(username, password, pemFileLocation, host, port, cryptoKey, cryptoAlgorithm)
-    val tempFile = writeToTemp(sqlContext, data, tmpFolder, fileType, header)
+    val tempFile = writeToTemp(sqlContext, data, tmpFolder, fileType, header, sepChar, useDbfs, compression)
     upload(tempFile, path, sftpClient)
     return createReturnRelation(data)
   }
@@ -183,28 +186,38 @@ class DefaultSource extends RelationProvider with SchemaRelationProvider with Cr
     }
   }
 
-  private def writeToTemp(sqlContext: SQLContext, df: DataFrame,
-      tempFolder: String, fileType: String, header: String) : String = {
+  private def writeToTemp(sqlContext: SQLContext, df: DataFrame, tempFolder: String, fileType: String, header: String,
+                          sepChar: String, useDbfs: String, compression: String) : String = {
     val r = scala.util.Random
     val tempLocation = tempFolder + File.separator + "spark_sftp_connection_temp" + r.nextInt(1000)
-    addShutdownHook(tempLocation);
+
+    // When you write a DataFrame to <tempFolder> in Databricks, you must specify the path as
+    // /dbfs/<tempFolder> to access it with java.io
+    val realLocation = useDbfs match {
+      case "true" => "/dbfs/" + tempLocation
+      case _ => tempLocation
+    }
+
+    addShutdownHook(realLocation)
 
     if (fileType.equals("json")) {
-      df.coalesce(1).write.json(tempLocation)
+      df.coalesce(1).write.option("compression", compression).json(tempLocation)
     } else if (fileType.equals("parquet")) {
-      df.coalesce(1).write.parquet(tempLocation)
+      df.coalesce(1).write.option("compression", compression).parquet(tempLocation)
       return copiedParquetFile(tempLocation)
     } else if (fileType.equals("csv")) {
       df.coalesce(1).
           write.
           format("com.databricks.spark.csv").
           option("header", header).
+          option("sep", sepChar).
+          option("compression", compression).
           save(tempLocation)
     } else if (fileType.equals("avro")) {
       df.coalesce(1).write.avro(tempLocation)
     }
-
-    copiedFile(tempLocation)
+    
+    copiedFile(realLocation)
   }
 
   private def addShutdownHook(tempLocation: String) {
@@ -225,9 +238,9 @@ class DefaultSource extends RelationProvider with SchemaRelationProvider with Cr
   private def copiedFile(tempFileLocation: String) : String = {
     val baseTemp = new File(tempFileLocation)
     val files = baseTemp.listFiles().filter { x =>
-      (!x.isDirectory()
-        && !x.getName.contains("SUCCESS")
-        && !x.isHidden())}
+      (!x.isDirectory
+        && !x.getName.startsWith("_")
+        && !x.isHidden)}
     files(0).getAbsolutePath
   }
 }
