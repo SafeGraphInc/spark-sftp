@@ -24,7 +24,6 @@ resolvers += "Spark Package Main Repo" at "https://dl.bintray.com/spark-packages
 
 // Spark packages
 spDependencies += "com.databricks/spark-avro_2.11:3.2.0"
-spDependencies += "com.databricks/spark-csv_2.11:1.3.0"
 
 // Test dependencies
 libraryDependencies += "org.scalatest" %% "scalatest" % "2.2.1" % "test"

@@ -5,7 +5,6 @@ import org.apache.spark.sql.sources.TableScan
 import org.apache.log4j.Logger
 import org.apache.spark.sql.DataFrame
 import com.databricks.spark.avro._
-import com.databricks.spark.csv._
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.Row
@@ -37,11 +36,10 @@ case class DatasetRelation(
       } else if (fileType.equals("csv")) {
         df = sqlContext.
           read.
-          format("com.databricks.spark.csv").
           option("header", header).
           option("delimiter", delimiter).
           option("inferSchema", inferSchema).
-          load(fileLocation)
+          csv(fileLocation)
       } else if (fileType.equals("avro")) {
         df = sqlContext.read.avro(fileLocation)
       }
